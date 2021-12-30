@@ -1,26 +1,10 @@
-
-from googleapiclient import errors
-
-class pygdriveException(Exception):
-    """ """
+class FileNotFound(Exception): 
     pass
 
-class FileNotFound(pygdriveException):
-    """ """
+class NotADriveFolderError(Exception): 
     pass
 
-class MoreThanOneFileMatch(pygdriveException):
-    """ """
-    pass
-
-class FileNotUploaded(pygdriveException):
-    """ """
-    pass
-
-class NotAFolder(pygdriveException):
-    """ """
-    pass
-
-class DriveAPIError(pygdriveException):
-    """ """
-    pass
+class MoreThanOneFileMatch(Exception): 
+    def __init__(self, files, title):
+        self.files = files
+        self.title = title

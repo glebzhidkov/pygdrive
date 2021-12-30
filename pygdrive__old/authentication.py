@@ -1,3 +1,4 @@
+
 import os
 import json
 import warnings
@@ -8,7 +9,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.auth.exceptions import RefreshError
 
-from pygdrive.client import DriveClient
+from pygdrive__old.client import DriveClient
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 DEFAULT_DIR = '.pygdrive_secrets'
@@ -73,7 +74,7 @@ def _oauth2_auth(client_secret, creds_directory, creds_env_var, scopes) -> Drive
     # Acess credentials from the previous session or create new
     if creds_env_var and creds_env_var in os.environ:
         try:
-            env_value = os.environ[creds_env_var]
+            env_value = os.environ.get(creds_env_var)
             creds = credentials.Credentials.from_authorized_user_info(info=json.loads(env_value), scopes=scopes)
         except:
             warnings.warn(f'Failed at using previously generated credentials stored in the environment variable {creds_env_var}')
@@ -105,10 +106,10 @@ def _oauth2_auth(client_secret, creds_directory, creds_env_var, scopes) -> Drive
     return DriveClient(creds=creds)
 
 
-def __oauth2_auth_new(client_secret, scopes) -> credentials.Credentials:
+def __oauth2_auth_new(client_secret, scopes) -> None:
     """ """
     if client_secret in os.environ:
-        env_value = os.environ[client_secret]
+        env_value = os.environ.get(client_secret)
         flow = InstalledAppFlow.from_client_config(json.loads(env_value), scopes)
         creds = flow.run_local_server(port=0)
     elif os.path.exists(client_secret):
@@ -124,7 +125,7 @@ def _service_account_auth(service_account_secret, scopes) -> DriveClient:
     """ authenticates pygrive with a service account """
     if service_account_secret in os.environ:
         creds = service_account.Credentials.from_service_account_info(
-            info = json.loads(os.environ[service_account_secret]),
+            info = os.environ.get(service_account_secret),
             scopes = scopes
         )
     elif os.path.exists(service_account_secret):

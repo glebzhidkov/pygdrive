@@ -7,13 +7,13 @@ import mimetypes
 from collections import UserDict
 from typing import List, Union, TYPE_CHECKING, Tuple, Optional, Dict
 
-from pygdrive.streamer import streamer_upload_file
-from pygdrive.object import DriveObject
-from pygdrive.utils import FOLDER_TYPE, FILE_ATTRS
-from pygdrive.exceptions import FileNotFound, MoreThanOneFileMatch
+from pygdrive__old.streamer import streamer_upload_file
+from pygdrive__old.object import DriveObject
+from pygdrive__old.utils import FOLDER_TYPE, FILE_ATTRS
+from pygdrive__old.exceptions import FileNotFound, MoreThanOneFileMatch
 
 if TYPE_CHECKING:
-    from pygdrive.file import DriveFile
+    from pygdrive__old.file import DriveFile
 
 
 class DriveFolder(DriveObject):

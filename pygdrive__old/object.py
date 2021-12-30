@@ -3,13 +3,13 @@ from __future__ import annotations
 import webbrowser
 from typing import Union, TYPE_CHECKING, Optional, Dict, List
 
-from pygdrive.utils import mimes_to_types, FOLDER_TYPE, FILE_ATTRS
-from pygdrive.exceptions import NotAFolder
+from pygdrive__old.utils import mimes_to_types, FOLDER_TYPE, FILE_ATTRS
+from pygdrive__old.exceptions import NotAFolder
 
 if TYPE_CHECKING:
-    from pygdrive.client import DriveClient
-    from pygdrive.folder import DriveFolder
-    from pygdrive.file import DriveFile
+    from pygdrive__old.client import DriveClient
+    from pygdrive__old.folder import DriveFolder
+    from pygdrive__old.file import DriveFile
 
 
 class DriveObject:

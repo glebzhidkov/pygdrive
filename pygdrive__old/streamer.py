@@ -11,10 +11,10 @@ from typing import Optional, TYPE_CHECKING
 
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload, MediaIoBaseUpload
 
-from pygdrive.utils import FILE_ATTRS
+from pygdrive__old.utils import FILE_ATTRS
 
 if TYPE_CHECKING:
-    from pygdrive.file import DriveFile
+    from pygdrive__old.file import DriveFile
 
 
 def streamer_upload_file(
