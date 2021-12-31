@@ -3,7 +3,10 @@ from __future__ import annotations
 import io
 import mimetypes
 import os
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional, TypedDict, Union, overload
+
+from google.api_core.datetime_helpers import from_rfc3339
 
 from pygdrive.exceptions import MethodNotAvailable, NotADriveFolderError
 from pygdrive.typed import ContentTypes, ExportType, MimeType, ResponseDict
@@ -14,11 +17,12 @@ if TYPE_CHECKING:
     from pygdrive.folder import DriveFolder
 
 
-class _ParsedDriveFileArgs(TypedDict):
+class _DriveFileArgs(TypedDict):
     """Arguments required to initiate a DriveFile. Not part of the public API."""
 
     id: str
     title: str
+    description: Optional[str]
     mime_type: str
     parent_id: str
     is_trashed: bool
@@ -26,9 +30,12 @@ class _ParsedDriveFileArgs(TypedDict):
     is_locked: bool
     locking_reason: Optional[str]
     url: str
+    created_time: datetime
+    modified_time: datetime
+    bytes_used: int
 
 
-def _parse_api_response(response: ResponseDict) -> _ParsedDriveFileArgs:
+def _parse_api_response(response: ResponseDict) -> _DriveFileArgs:
 
     parents = response.get("parents", [])
     if len(parents) > 2:
@@ -38,9 +45,10 @@ def _parse_api_response(response: ResponseDict) -> _ParsedDriveFileArgs:
     is_locked = _content_restrictions[0].get("readOnly", False)
     locking_reason = _content_restrictions[0].get("reason", None)
 
-    return _ParsedDriveFileArgs(
+    return _DriveFileArgs(
         id=response["id"],
         title=response["name"],
+        description=response.get("description"),
         mime_type=response["mimeType"],
         parent_id="root" if not parents else parents[0],
         is_trashed=response.get("trashed", False),
@@ -48,6 +56,9 @@ def _parse_api_response(response: ResponseDict) -> _ParsedDriveFileArgs:
         is_locked=is_locked,
         locking_reason=locking_reason,
         url=response["webViewLink"],
+        created_time=from_rfc3339(response["createdTime"]),
+        modified_time=from_rfc3339(response["modifiedTime"]),
+        bytes_used=response.get("quotaBytesUsed", 0)
     )
 
 
@@ -56,20 +67,9 @@ class DriveFile:
     API reference: https://developers.google.com/drive/api/v3/reference/files
     """
 
-    def __init__(self, client: DriveClient, file_args: _ParsedDriveFileArgs) -> None:
+    def __init__(self, client: DriveClient, file_args: _DriveFileArgs) -> None:
         self._client = client
-        self._set_file_args(file_args)
-
-    def _set_file_args(self, file_args: _ParsedDriveFileArgs):
-        self._id = file_args["id"]
-        self._title = file_args["title"]
-        self._mime_type = file_args["mime_type"]
-        self._parent_id = file_args["parent_id"]
-        self._is_trashed = file_args["is_trashed"]
-        self._is_starred = file_args["is_starred"]
-        self._is_locked = file_args["is_locked"]
-        self._locking_reason = file_args["is_locked"]
-        self._url = file_args["url"]
+        self.__file_args = file_args
 
     def _reset_drive_files(self):
         pass  # only relevant for DriveFolder
@@ -78,8 +78,7 @@ class DriveFile:
         """
         Update attributes of this file with up-to-date values from cloud.
         """
-        file_args = _parse_api_response(self._client._api.get_file(self.id))
-        self._set_file_args(file_args)
+        self.__file_args = _parse_api_response(self._client._api.get_file(self.id))
         self._reset_drive_files()
 
     @property
@@ -87,36 +86,50 @@ class DriveFile:
         """
         The ID of the file (immutable).
         """
-        return self._id
+        return self.__file_args["id"]
 
     @property
     def url(self) -> str:
         """
         A link for opening the file in a relevant Google editor or viewer in a browser (immutable).
         """
-        return self._url
+        return self.__file_args["url"]
 
     @property
     def title(self) -> str:
         """
         The name of the file (mutable). This is not necessarily unique within a folder.
         """
-        return self._title
+        return self.__file_args["title"]
 
     @title.setter
     def title(self, new_title: str) -> None:
         self._client._api.update_file(file_id=self.id, metadata={"name": new_title})
+        self.__file_args["title"] = new_title
+
+    @property
+    def description(self) -> Optional[str]:
+        return self.__file_args["description"]
+
+    @description.setter
+    def description(self, new_description: str) -> None:
+        self._client._api.update_file(file_id=self.id, metadata={"description": new_description})
+        self.__file_args["description"] = new_description
 
     @property
     def mime_type(self) -> str:
         """
         The mime type of the file (immutable).
         """
-        return self._mime_type
+        return self.__file_args["mime_type"]
+
+    @property
+    def bytes_used(self) -> int:
+        return self.__file_args["bytes_used"]
 
     @property
     def parent(self) -> DriveFolder:
-        return self._client.get_folder(self._parent_id)
+        return self._client.get_folder(self.__file_args["parent_id"])
 
     @parent.setter
     def parent(self, new_parent: Union[DriveFolder, str]) -> None:
@@ -127,22 +140,21 @@ class DriveFile:
         self._client._api.update_file(file_id=self.id, addParents=new_parent_id)
 
         # reset children of both old and new parents
-        self._client._refresh_folder_contents(self._parent_id)
+        self._client._refresh_folder_contents(self.__file_args["parent_id"])
         self._client._refresh_folder_contents(new_parent_id)
-        self._parent_id = new_parent_id
+        self.__file_args["parent_id"] = new_parent_id
 
     @property
     def is_trashed(self) -> bool:
-        return self._is_trashed
+        return self.__file_args["is_trashed"]
 
     @is_trashed.setter
     def is_trashed(self, new_value: bool) -> None:
         if self.is_trashed != new_value:
             self.set_metadata(trashed=new_value)
-        self._is_trashed = new_value
-        self._client._refresh_folder_contents(
-            self._parent_id
-        )  # reset the list of parent's children
+        self.__file_args["is_trashed"] = new_value
+        # reset the list of parent's children if parent already loaded
+        self._client._refresh_folder_contents(self.__file_args["parent_id"])
 
     def delete(self) -> None:
         # TODO: add skip_bin parameter
@@ -150,37 +162,45 @@ class DriveFile:
 
     @property
     def is_starred(self) -> bool:
-        return self._is_starred
+        return self.__file_args["is_starred"]
 
     @is_starred.setter
     def is_starred(self, new_value: bool) -> None:
         if self.is_starred != new_value:
             self.set_metadata(starred=new_value)
-        self._is_starred = new_value
+        self.__file_args["is_starred"] = new_value
 
     @property
     def is_locked(self) -> bool:
-        return self._is_locked
+        return self.__file_args["is_locked"]
 
     def lock(self, locking_reason: str) -> None:
         restriction = [{"readOnly": True, "reason": locking_reason}]
         self.set_metadata(contentRestrictions=restriction)
-        self._is_locked = True
+        self.__file_args["is_locked"] = True
 
     def unlock(self) -> None:
         restriction = [{"readOnly": False}]
         self.set_metadata(contentRestrictions=restriction)
-        self._is_locked = False
+        self.__file_args["is_locked"] = False
 
     @property
     def is_folder(self) -> bool:
-        return self._mime_type == MimeType.FOLDER.value
+        return self.mime_type == MimeType.FOLDER.value
 
     @property
     def is_google_doc(self) -> bool:
         return self.mime_type.startswith("application/vnd.google-apps.")
 
-    def get_metadata(self, attrs: str) -> dict:
+    @property
+    def created_time(self) -> datetime:
+        return self.__file_args["created_time"]
+
+    @property
+    def modified_time(self) -> datetime:
+        return self.__file_args["modified_time"]
+    
+    def get_metadata(self, attrs: str) -> ResponseDict:
         return self._client._api.get_file(file_id=self.id, attrs=attrs)
 
     def set_metadata(self, **kwargs) -> None:
@@ -301,6 +321,7 @@ class DriveFile:
         self, content: ContentTypes, title: Optional[str] = None
     ) -> Union[DriveFile, DriveFolder]:
         raise MethodNotAvailable("upload", "DriveFile")
+
 
 def isolate_folder_id(folder: Union[DriveFolder, DriveFile, str]) -> str:
     if isinstance(folder, DriveFile):

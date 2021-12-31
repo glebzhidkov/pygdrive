@@ -9,7 +9,7 @@ from pygdrive.exceptions import (
     MethodNotAvailable,
 )
 from pygdrive.typed import ContentTypes, MimeType
-from pygdrive.file import DriveFile, _ParsedDriveFileArgs
+from pygdrive.file import DriveFile, _DriveFileArgs
 from pygdrive.files import DriveFiles
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class DriveFolder(DriveFiles, DriveFile):
-    def __init__(self, client: DriveClient, file_args: _ParsedDriveFileArgs):
+    def __init__(self, client: DriveClient, file_args: _DriveFileArgs):
         # kwargs to be passed are same as for DriveFile init
         query = f"'{file_args['id']}' in parents and trashed = false"
         DriveFiles.__init__(self, client=client, query=query)
@@ -77,7 +77,7 @@ class DriveFolder(DriveFiles, DriveFile):
             content=content, title=title, parent_id=self.id
         )
         self._client._refresh_folder_contents(self.id)
-        return DriveFile.from_api_response(client=self._client, response=response)  # type: ignore
+        return self._client._build_file_from_api_response(response=response)
 
     def __upload_directory(self, path: str, title: Optional[str] = None) -> DriveFolder:
         title = title or os.path.basename(path)

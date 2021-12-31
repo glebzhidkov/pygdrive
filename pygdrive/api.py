@@ -13,7 +13,10 @@ from .typed import ContentTypes, Corpora, ResponseDict
 
 
 class DriveApi:
-    FILE_ATTRS = "id, name, mimeType, description, parents, trashed, starred, contentRestrictions, webViewLink"
+    FILE_ATTRS = (
+        "id, name, mimeType, description, parents, trashed, starred, contentRestrictions, "
+        "webViewLink, createdTime, modifiedTime, quotaBytesUsed"
+    )
     CHUNK_SIZE = 1000
     RESUMABLE_UPLOAD = True
 
