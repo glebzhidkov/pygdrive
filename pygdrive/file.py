@@ -8,7 +8,7 @@ import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, overload
 
 from pygdrive.exceptions import MoreThanOneFileMatch, NotADriveFolderError
-from pygdrive.typed import ContentTypes, MimeType
+from pygdrive.typed import ContentTypes, ExportType, MimeType
 
 if TYPE_CHECKING:
     from pygdrive.client import DriveClient
@@ -23,12 +23,22 @@ class DriveFiles:
     ```
     """
     _content: List[Union[DriveFile, DriveFolder]]
+    title = "Search results"
 
-    def __init__(self, client: DriveClient, query: str, **kwargs) -> None:
+    def __init__(self, client: DriveClient, query: str, **_search_parms) -> None:
         self._client = client
-        self._search_parms = kwargs
+        self._search_parms = _search_parms
         self._search_parms["query"] = query
-        self.refresh()
+        self._reset_drive_files()
+
+    def _reset_drive_files(self):
+        self._search_parms["next_page_token"] = None
+        self._loaded_first_page = False
+        self.__last_returned_idx = -1
+        self._content = []
+
+    def refresh(self) -> None:
+        self._reset_drive_files()
 
     def __load_next_page(self) -> None:
         response = self._client._api.list_files(**self._search_parms)
@@ -36,7 +46,7 @@ class DriveFiles:
         self._loaded_first_page = True
 
         for file in response.get("files", []):
-            self._content.append(DriveFile.from_api_response(client=self._client, response=file))
+            self._content.append(DriveFileBase.from_api_response(client=self._client, response=file))
     
     def __load_all(self) -> None:
         while not self.fully_loaded:
@@ -48,12 +58,6 @@ class DriveFiles:
             return False
         else:
             return self._search_parms["next_page_token"] is None
-
-    def refresh(self) -> None:
-        self._search_parms["next_page_token"] = None
-        self._loaded_first_page = False
-        self.__last_returned_idx = -1
-        self._content = []
 
     def __getitem__(self, title: str) -> Union[DriveFile, DriveFolder]:
         # scan already loaded content for matches
@@ -71,7 +75,7 @@ class DriveFiles:
             if len(response) > 1:
                 raise MoreThanOneFileMatch(files=response, title=title)
             elif len(response) == 1:
-                return DriveFile.from_api_response(client=self._client, response=response[0])
+                return DriveFileBase.from_api_response(client=self._client, response=response[0])
 
         raise KeyError
 
@@ -91,6 +95,16 @@ class DriveFiles:
     def __iter__(self) -> DriveFiles:
         return self
 
+    def __repr__(self) -> str:
+        return f"<DriveFiles for query='{self._search_parms['query']}'>"
+
+    def exists(self, title: str) -> bool:
+        try:
+            self[title]
+            return True
+        except KeyError:
+            return False
+
     @property
     def content(self) -> List[Union[DriveFile, DriveFolder]]:
         self.__load_all()
@@ -104,8 +118,32 @@ class DriveFiles:
     def subfolders(self) -> List[DriveFolder]:
         return list(f for f in self.content if isinstance(f, DriveFolder))
 
+    def download(self, path: Optional[str] = None, include_subfolders: bool = True, export_format = None):
+        """
+        Download contents of this folder or search results to path.
+        """
+        # TODO align signatures with DriveFile
+        # TODO add progress bar
 
-class DriveFileMixin:
+        if export_format:
+            raise ValueError("export_format parameter not supported for folders / search results")
+        if not path:
+            raise ValueError("path parameter needs to be provided for folders / search results")
+
+        path = os.path.join(path, self.title)
+        if os.path.exists(path):
+            raise Exception(f"Folder already exists at {path}")
+        os.mkdir(path)
+
+        for obj in self.files:
+            obj.download(path=path)
+
+        if include_subfolders:
+            for obj in self.subfolders:
+                obj.download(path, include_subfolders=True)
+
+
+class DriveFileBase:
     
     def __init__(
         self,
@@ -115,7 +153,10 @@ class DriveFileMixin:
         mime_type: str, 
         parent_id: str,
         is_trashed: bool,
-        is_starred: bool
+        is_starred: bool,
+        is_locked: bool,
+        locking_reason: Optional[str],
+        url: str,
     ) -> None:
         self._client = client
         self._id = id
@@ -124,12 +165,11 @@ class DriveFileMixin:
         self._parent_id = parent_id
         self._is_trashed = is_trashed
         self._is_starred = is_starred
-        self._load_content()
+        self._is_locked = is_locked
+        self._locking_reason = locking_reason
+        self._url = url
     
-    def _load_content(self):
-        pass
-
-    def refresh(self):
+    def _sync_file(self):
         response = self._client._api.get_file(self.id)
         self._title = response["name"]
         self._is_starred = response.get("starred", False)
@@ -138,7 +178,9 @@ class DriveFileMixin:
         if len(parents) > 2:
             print("File has more than 1 parent")
         self._parent_id = "root" if not parents else parents[0]
-        self._load_content()
+
+    def refresh(self):
+        self._sync_file()
 
     @classmethod
     def from_api_response(cls, client: DriveClient, response: Dict[str, Any]) -> Union[DriveFile, DriveFolder]:
@@ -158,6 +200,10 @@ class DriveFileMixin:
         is_folder = response["mimeType"] == MimeType.FOLDER.value
         builder = DriveFolder if is_folder else DriveFile
 
+        _content_restrictions = response.get("contentRestrictions", [{}])
+        is_locked = _content_restrictions[0].get("readOnly", False)
+        locking_reason = _content_restrictions[0].get("reason", None)
+
         file = builder(
             client=client,
             id=file_id,
@@ -166,23 +212,32 @@ class DriveFileMixin:
             parent_id="root" if not parents else parents[0],
             is_trashed=response.get("trashed", False),
             is_starred=response.get("starred", False),
+            is_locked=is_locked,
+            locking_reason=locking_reason,
+            url=response["webViewLink"]
         )
         client._add_to_session(file)
         return file
 
     @property
     def id(self) -> str:
+        """
+        The ID of the file (immutable).
+        """
         return self._id
 
     @property
     def url(self) -> str:
-        if self.is_folder:
-            return f"https://drive.google.com/drive/u/1/folders/{self.id}"
-        else:
-            return f"https://drive.google.com/file/d/{self.id}"
+        """
+        A link for opening the file in a relevant Google editor or viewer in a browser (immutable).
+        """
+        return self._url
 
     @property
     def title(self) -> str:
+        """
+        The name of the file (mutable). This is not necessarily unique within a folder.
+        """
         return self._title
 
     @title.setter
@@ -191,6 +246,9 @@ class DriveFileMixin:
 
     @property
     def mime_type(self) -> str:
+        """
+        The mime type of the file (immutable).
+        """
         return self._mime_type
 
     @property
@@ -235,6 +293,20 @@ class DriveFileMixin:
         self._is_starred = new_value
 
     @property
+    def is_locked(self) -> bool:
+        return self._is_locked
+
+    def lock(self, locking_reason: str) -> None:
+        restriction = [{"readOnly": True, "reason": locking_reason}]
+        self.set_metadata(contentRestrictions=restriction)
+        self._is_locked = True
+
+    def unlock(self) -> None:
+        restriction = [{"readOnly": False}]
+        self.set_metadata(contentRestrictions=restriction)
+        self._is_locked = False
+
+    @property
     def is_folder(self) -> bool:
         return self._mime_type == MimeType.FOLDER
 
@@ -266,33 +338,43 @@ class DriveFileMixin:
         return DriveFile.from_api_response(client=self._client, response=response)  # type: ignore 
 
 
-class DriveFile(DriveFileMixin):
+class DriveFile(DriveFileBase):
     __len__ = 0
     content = files = subfolders = None
     
-    def update(self, content: ContentTypes):
+    def update(self, content: ContentTypes) -> None:
         self._client._api.update_file_media(
             content=content, file_id=self.id, mime_type=self.mime_type
         )
 
     @overload
-    def download(self, path: None = None, export_format: Optional[str] = None) -> io.BytesIO: ...
+    def download(self, path: None = None, export_type: Optional[ExportType] = None) -> io.BytesIO: ...
 
     @overload
-    def download(self, path: str, export_format: Optional[str] = None) -> io.FileIO: ...
+    def download(self, path: str, export_type: Optional[ExportType] = None) -> io.FileIO: ...
     
-    def download(self, path: Optional[str] = None, export_format: Optional[str] = None):
+    def download(self, path: Optional[str] = None, export_type: Optional[ExportType] = None):
+        """
+        Export formats: https://developers.google.com/drive/api/v3/ref-export-formats
+        """
+        if self.is_google_doc:
+            export_type = export_type or ExportType.PDF
+            try:
+                export_format = export_type.value[self.mime_type]
+            except KeyError:
+                raise ValueError(f"{export_type=} not supported for {self.mime_type=}")
 
-        if self.is_google_doc and not export_format:
-            export_format = self._client._api.EXPORT_DEFAULT
-        if not self.is_google_doc and export_format:
-            raise Exception("export only supported for google docs")
-
-        if path:
-            if export_format:
+            if path:
                 path = os.path.join(path, f"{self.title}.{mimetypes.guess_extension(export_format)}")
-            else:
+
+        else:
+            export_format = None
+            if export_type:
+                raise Exception("export only supported for google docs")
+            if path:
                 path = os.path.join(path, self.title)
+
+        # TODO don't overwrite existing files
 
         return self._client._api.download_file_media(file_id=self.id, path=path, export_format=export_format)
 
@@ -306,35 +388,19 @@ class DriveFile(DriveFileMixin):
         return DriveFile.from_api_response(client=self._client, response=response)  # type: ignore
 
 
-class DriveFolder(DriveFileMixin):
+class DriveFolder(DriveFileBase, DriveFiles):
 
-    def _load_content(self):
-        self._content = self._client.search(f"'{self.id}' in parents and trashed = false")
+    def __init__(self, **kwargs):
+        DriveFileBase.__init__(self, **kwargs)
+        DriveFiles.__init__(self, client=self._client, query=f"'{self.id}' in parents and trashed = false")
 
-    # references to drivefiles
-    @property
-    def content(self):
-        return self._content.content
-    
-    @property
-    def files(self):
-        return self._content.files
-
-    @property
-    def subfolders(self):
-        return self._content.subfolders 
-
-    def __getitem__(self, title: str):
-        return self._content.__getitem__(title=title)
-
-    def __next__(self):
-        return next(self._content)
-
-    def __iter__(self):
-        return iter(self._content)
-
-    def __len__(self):
-        return len(self._content)
+    def refresh(self):
+        """
+        Update folder attributes and its contents with up-to-date values from Google Drive.
+        Attributes of content files are not updated, unless a refresh() is called on them explicitly.
+        """
+        self._sync_file()
+        self._reset_drive_files()
 
     # own methods
     @property
@@ -347,15 +413,22 @@ class DriveFolder(DriveFileMixin):
         folder = DriveFolder.from_api_response(client=self._client, response=response)
         return assert_is_folder(folder)
 
-    def go_to_subfolder(self, title: str) -> DriveFolder:
+    def get_subfolder(self, title: str, strict: bool = True) -> DriveFolder:
+        """
+        Returns an existing subfolder with the specified title or creates a new one.
+
+        Args:
+            strict: if True (default), raises MoreThanOneFileMatch if more than subfolder with such title exist
+                    if False, always returns the first match
+        """
         matching_entries = [obj for obj in self.subfolders if obj.title == title]
         
         if not matching_entries:
             return self.create_subfolder(title)
-        elif len(matching_entries) > 1:
-            raise MoreThanOneFileMatch(files=matching_entries, title=title)
-        else:
+        elif not strict or len(matching_entries) == 1:
             return matching_entries[0]
+        else:
+            raise MoreThanOneFileMatch(files=matching_entries, title=title)
 
     def upload(self, content: ContentTypes, title: Optional[str] = None) -> Union[DriveFile, DriveFolder]:
         """
@@ -366,10 +439,13 @@ class DriveFolder(DriveFileMixin):
         else:
             return self.__upload_file(content=content, title=title or "New file")
 
+    def update(self, content: ContentTypes) -> None:
+        raise NotImplementedError
+
     def __upload_file(self, content: ContentTypes, title: str) -> DriveFile:
         response = self._client._api.upload_file_media(content=content, title=title, parent_id=self.id)
         self._client._reset_contents(self.id)
-        return DriveFile.from_api_response(client=self._client, response=response)  # type: ignore
+        return DriveFileBase.from_api_response(client=self._client, response=response)  # type: ignore
 
     def __upload_directory(self, path: str, title: Optional[str] = None) -> DriveFolder:
         title = title or os.path.basename(path)
@@ -386,24 +462,6 @@ class DriveFolder(DriveFileMixin):
                     pass
         
         return new_folder
-
-    def download(self, path: str, include_subfolders: bool = True, export_format = None):
-        # add progress bar
-
-        if export_format:
-            raise ValueError("export_format parameter not supported for folders")
-
-        path = os.path.join(path, self.title)
-        if os.path.exists(path):
-            raise Exception(f"Folder already exists at {path}")
-        os.mkdir(path)
-
-        for obj in self.files:
-            obj.download(path=path)
-
-        if include_subfolders:
-            for obj in self.subfolders:
-                obj.download(path, include_subfolders=True)
 
     def _count_children_and_grandchildren(self) -> int:
         length = len(self.content)

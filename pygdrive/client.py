@@ -38,8 +38,8 @@ class DriveClient:
         self._session[file.id] = file
 
     def _reset_contents(self, folder_id: str) -> None:
-        if folder_id in self._session:
-            self._session[folder_id]._load_content()
+        if folder_id in self._session and isinstance(self._session[folder_id], DriveFolder):
+            self._session[folder_id].refresh()
 
     def __getitem__(self, file_id: str) -> Union[DriveFile, DriveFolder]:
         return self.get_file(file_id)

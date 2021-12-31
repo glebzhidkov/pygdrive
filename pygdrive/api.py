@@ -15,12 +15,11 @@ ResponseDict = Dict[str, Any]
 
 
 class DriveApi:
-    FILE_ATTRS = "id, name, mimeType, parents, trashed, starred"
+    FILE_ATTRS = "id, name, mimeType, description, parents, trashed, starred, contentRestrictions, webViewLink"
     CHUNK_SIZE = 1000
     RESUMABLE_UPLOAD = True
-    EXPORT_DEFAULT = "todo"
     
-    def __init__(self, creds):
+    def __init__(self, creds: Any):
         self.creds = creds
         self.service = build('drive', 'v3', credentials=creds)
 
