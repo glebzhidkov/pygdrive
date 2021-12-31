@@ -7,7 +7,7 @@ import mimetypes
 import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, overload
 
-from pygdrive.exceptions import MoreThanOneFileMatch, NotADriveFolderError
+from pygdrive.exceptions import MoreThanOneFileMatch, NotADriveFolderError, MethodNotAvailable
 from pygdrive.typed import ContentTypes, ExportType, MimeType
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ class DriveFiles:
         self._loaded_first_page = True
 
         for file in response.get("files", []):
-            self._content.append(DriveFileBase.from_api_response(client=self._client, response=file))
+            self._content.append(DriveFile.from_api_response(client=self._client, response=file))
     
     def __load_all(self) -> None:
         while not self.fully_loaded:
@@ -75,7 +75,7 @@ class DriveFiles:
             if len(response) > 1:
                 raise MoreThanOneFileMatch(files=response, title=title)
             elif len(response) == 1:
-                return DriveFileBase.from_api_response(client=self._client, response=response[0])
+                return DriveFile.from_api_response(client=self._client, response=response[0])
 
         raise KeyError
 
@@ -118,7 +118,7 @@ class DriveFiles:
     def subfolders(self) -> List[DriveFolder]:
         return list(f for f in self.content if isinstance(f, DriveFolder))
 
-    def download(self, path: Optional[str] = None, include_subfolders: bool = True, export_format = None):
+    def download(self, path: Optional[str] = None, export_format: Optional[ExportType] = None, include_subfolders: bool = True):
         """
         Download contents of this folder or search results to path.
         """
@@ -143,7 +143,8 @@ class DriveFiles:
                 obj.download(path, include_subfolders=True)
 
 
-class DriveFileBase:
+class DriveFile:
+    content = files = subfolders = None
     
     def __init__(
         self,
@@ -328,6 +329,9 @@ class DriveFileBase:
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} '{self.title}'>"
 
+    def __len__(self) -> int:
+        return 0
+
     def create_shortcut(self, parent: Union[DriveFolder, str], title: Optional[str]) -> DriveFile:
         
         parent_id = isolate_folder_id(parent)
@@ -336,11 +340,6 @@ class DriveFileBase:
         response = self._client._api.create_shortcut(file_id=self.id, title=title, parent_id=parent_id)
 
         return DriveFile.from_api_response(client=self._client, response=response)  # type: ignore 
-
-
-class DriveFile(DriveFileBase):
-    __len__ = 0
-    content = files = subfolders = None
     
     def update(self, content: ContentTypes) -> None:
         self._client._api.update_file_media(
@@ -348,12 +347,12 @@ class DriveFile(DriveFileBase):
         )
 
     @overload
-    def download(self, path: None = None, export_type: Optional[ExportType] = None) -> io.BytesIO: ...
+    def download(self, path: None = None, export_type: Optional[ExportType] = None, **kwargs) -> io.BytesIO: ...
 
     @overload
-    def download(self, path: str, export_type: Optional[ExportType] = None) -> io.FileIO: ...
+    def download(self, path: str, export_type: Optional[ExportType] = None, **kwargs) -> io.FileIO: ...
     
-    def download(self, path: Optional[str] = None, export_type: Optional[ExportType] = None):
+    def download(self, path: Optional[str] = None, export_type: Optional[ExportType] = None, **kwargs):
         """
         Export formats: https://developers.google.com/drive/api/v3/ref-export-formats
         """
@@ -388,10 +387,10 @@ class DriveFile(DriveFileBase):
         return DriveFile.from_api_response(client=self._client, response=response)  # type: ignore
 
 
-class DriveFolder(DriveFileBase, DriveFiles):
+class DriveFolder(DriveFile, DriveFiles):
 
     def __init__(self, **kwargs):
-        DriveFileBase.__init__(self, **kwargs)
+        DriveFile.__init__(self, **kwargs)
         DriveFiles.__init__(self, client=self._client, query=f"'{self.id}' in parents and trashed = false")
 
     def refresh(self):
@@ -402,13 +401,12 @@ class DriveFolder(DriveFileBase, DriveFiles):
         self._sync_file()
         self._reset_drive_files()
 
-    # own methods
     @property
     def trashed_content(self) -> DriveFiles:
-        return self._client.search(f"'{self.id}' in parents and trashed = false")
+        return self._client.search(f"'{self.id}' in parents and trashed = true")
 
     def create_subfolder(self, title: str) -> DriveFolder:
-        metadata = {'name': title, 'mimeType': str(MimeType.FOLDER), 'parents': [self.id]}
+        metadata = {'name': title, 'mimeType': MimeType.FOLDER.value, 'parents': [self.id]}
         response = self._client._api.create_file(metadata=metadata)
         folder = DriveFolder.from_api_response(client=self._client, response=response)
         return assert_is_folder(folder)
@@ -439,13 +437,10 @@ class DriveFolder(DriveFileBase, DriveFiles):
         else:
             return self.__upload_file(content=content, title=title or "New file")
 
-    def update(self, content: ContentTypes) -> None:
-        raise NotImplementedError
-
     def __upload_file(self, content: ContentTypes, title: str) -> DriveFile:
         response = self._client._api.upload_file_media(content=content, title=title, parent_id=self.id)
         self._client._reset_contents(self.id)
-        return DriveFileBase.from_api_response(client=self._client, response=response)  # type: ignore
+        return DriveFile.from_api_response(client=self._client, response=response)  # type: ignore
 
     def __upload_directory(self, path: str, title: Optional[str] = None) -> DriveFolder:
         title = title or os.path.basename(path)
@@ -468,6 +463,18 @@ class DriveFolder(DriveFileBase, DriveFiles):
         for subfolder in self.subfolders:
             length += subfolder._count_children_and_grandchildren()
         return length
+
+    def update(self, content: ContentTypes) -> None:
+        """
+        A folder cannot be updated directly, calling this method will raise an error.
+        """
+        raise MethodNotAvailable("method not available for folders")
+
+    def copy(self, title: Optional[str] = None, parent: Union[DriveFolder, str, None] = None) -> DriveFile:
+        """
+        A folder cannot be copied directly, calling this method will raise an error.
+        """
+        raise MethodNotAvailable("method not available for folders")
 
 
 def isolate_folder_id(folder: Union[DriveFolder, DriveFile, str]) -> str:

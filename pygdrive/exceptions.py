@@ -1,10 +1,15 @@
-class FileNotFound(Exception): 
+class DriveApiError(Exception)
+
+class FileNotFound(DriveApiError): 
     pass
 
-class NotADriveFolderError(Exception): 
+class NotADriveFolderError(DriveApiError): 
     pass
 
-class MoreThanOneFileMatch(Exception): 
+class MoreThanOneFileMatch(DriveApiError): 
     def __init__(self, files, title):
         self.files = files
         self.title = title
+
+class MethodNotAvailable(DriveApiError):
+    pass
