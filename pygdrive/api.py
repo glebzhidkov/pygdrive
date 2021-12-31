@@ -9,7 +9,7 @@ from google.auth.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload, MediaIoBaseUpload
 
-from .typed import ContentTypes, Corpora, ResponseDict
+from .typed import ContentTypes, SearchCorpora, ResponseDict, SearchSpace
 
 
 class DriveApi:
@@ -55,8 +55,8 @@ class DriveApi:
     def list_files(
         self,
         query: str,
-        corpora: Corpora = "user",
-        spaces: str = "drive",
+        corpora: SearchCorpora = "user",
+        space: SearchSpace = "drive",
         drive_id: Optional[str] = None,
         order_by: Optional[str] = None,
         limit: int = 100,
@@ -74,7 +74,7 @@ class DriveApi:
                 orderBy=order_by,
                 pageSize=limit,
                 pageToken=next_page_token,
-                spaces=spaces,
+                spaces=space,
                 includeItemsFromAllDrives=True,
                 supportsAllDrives=True,
                 fields=f"files({self.FILE_ATTRS})",

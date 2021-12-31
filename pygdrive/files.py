@@ -16,9 +16,24 @@ if TYPE_CHECKING:
 class DriveFiles:
     """
     A lazy implementation of a list of files in a Google Drive folder / search results.
+    
+    ### Lazy methods (load elements only once needed):
     ```
-    client = DriveClient()
-    files = client.search(".pdf")
+    root_folder = client.root
+    root_folder["elephant.png"]  # accessing file by name
+    root_folder.exists("elephant.png")
+
+    # iterating over all contents is lazy -- elements are loaded only once reached
+    for file in root_folder:
+        file.delete()
+    ```
+
+    ### Eager methods (load all contents):
+    ```
+    root_folder.content  # access list of all contents
+    root_folder.subfolders
+    root_folder.files
+    len(root_folder)  # get number of contained files and subfolders
     ```
     """
 
@@ -44,6 +59,9 @@ class DriveFiles:
         self._content = []
 
     def refresh(self) -> None:
+        """
+        Update the list of files with up-to-date values from Google Drive.
+        """
         self._reset_drive_files()
 
     def __load_next_page(self) -> None:
@@ -60,6 +78,9 @@ class DriveFiles:
 
     @property
     def fully_loaded(self) -> bool:
+        """
+        Whether all elements have been loaded into the current session.
+        """
         if not self._loaded_first_page:
             return False
         else:
@@ -108,6 +129,10 @@ class DriveFiles:
             return f"<DriveFiles for query='{self._search_parms['query']}'>"
 
     def exists(self, title: str) -> bool:
+        """
+        Whether a file or a folder with the specified title exists in 
+        this folder or search results (exact match).
+        """
         try:
             self[title]
             return True
@@ -116,15 +141,27 @@ class DriveFiles:
 
     @property
     def content(self) -> List[Union[DriveFile, DriveFolder]]:
+        """
+        Returns a list containing all files and subfolders contained in 
+        this folder or search results. All elements are eagerly loaded.
+        """
         self.__load_all()
         return self._content
 
     @property
     def files(self) -> List[DriveFile]:
+        """
+        Returns a list containing all files contained in 
+        this folder or search results. All elements are eagerly loaded.
+        """
         return list(f for f in self.content if not f.is_folder)
 
     @property
     def subfolders(self) -> List[DriveFolder]:
+        """
+        Returns a list containing all subfolders contained in 
+        this folder or search results. All elements are eagerly loaded.
+        """
         return list(f for f in self.content if f.is_folder)  # type: ignore
 
     def download(
@@ -134,7 +171,12 @@ class DriveFiles:
         include_subfolders: bool = True,
     ) -> io.FileIO:
         """
-        Download contents of this folder or search results to path.
+        Download all contents of this folder or search results to path.
+
+        Args:
+            :path: Local path where a new folder with all contents will be created.
+            :export_format: Export format for Google Doc files (if not specified, PDF).
+            :include_subfolders: Whether to download all subfolders and their contents.
         """
         # TODO add progress bar
 

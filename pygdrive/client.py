@@ -10,10 +10,31 @@ from pygdrive.exceptions import FileAlreadyRegisteredInSession
 from pygdrive.file import DriveFile, _parse_api_response, isolate_folder_id
 from pygdrive.files import DriveFiles
 from pygdrive.folder import DriveFolder, assert_is_folder
-from pygdrive.typed import Corpora, ResponseDict
+from pygdrive.typed import SearchCorpora, ResponseDict, SearchSpace
 
 
 class DriveClient:
+    """
+    Google Drive API v3 client.
+
+    Basic examples:
+    ```
+    from pygrdrive import authenticate
+    client = authenticate()
+
+    # access file or folder directly by its ID
+    file = client[file_id]
+
+    # access file or folder by a sequence of folder names
+    file = client.root["documents"]["drafts"]["proposal.pdf"]
+    file.download(".")
+    file.move(root["documents"]["approved"])
+
+    # upload file or folder to the root folder
+    file = client.root.upload("local_folder", title="new_folder")
+    file.share("axel@lexa.com", role="editor")
+    ```
+    """
     def __init__(self, creds: Credentials) -> None:
         self._api = DriveApi(creds)
         self._session: Dict[str, Union[DriveFile, DriveFolder]] = {}
@@ -22,15 +43,30 @@ class DriveClient:
 
     def update_search_config(
         self,
-        corpora: Corpora = "user",
-        spaces: str = "drive",
+        corpora: SearchCorpora = "user",
+        space: SearchSpace = "drive",
         drive_id: Optional[str] = None,
         order_by: Optional[str] = None,
         limit: int = 100,
     ) -> None:
+        """
+        Update default search parameters for this instance of the DriveClient.
+
+        Args:
+            corpora     "user" (search among files stored in or shared to user's Drive, default),
+                        "drive" (shared drive, requires "drive_id"),
+                        "domain" (files in work / school domain),
+                        "allDrives" (not performant).
+            spaces      "drive" (default) or "appDataFolder"
+            drive_id    ID of the shared drive to search.
+            order_by    
+            limit:      number of files returned in a single API request response (1 to 1000)
+
+        See also: [API reference](https://developers.google.com/drive/api/v3/reference/files/list).
+        """
         self._search_config = {
             "corpora": corpora,
-            "spaces": spaces,
+            "space": space,
             "drive_id": drive_id,
             "order_by": order_by,
             "limit": limit,
