@@ -1,6 +1,8 @@
 import io
 from enum import Enum
-from typing import Literal, Union
+from typing import Literal, Union, Dict, Any
+
+ResponseDict = Dict[str, Any]
 
 Corpora = Literal["user", "drive", "domain", "allDrives"]
 
@@ -20,6 +22,7 @@ class ExportType(Enum):
     """
     Reference: https://developers.google.com/drive/api/v3/ref-export-formats
     """
+
     PDF = {
         MimeType.DOCUMENT.value: "application/pdf",
         MimeType.SPREADSHEET.value: "application/pdf",
@@ -42,10 +45,12 @@ class ExportType(Enum):
     }
     HTML_ZIPPED = {
         MimeType.DOCUMENT.value: "application/zip",
-        MimeType.SPREADSHEET.value: "application/zip",    
+        MimeType.SPREADSHEET.value: "application/zip",
     }
     HTML = {MimeType.DOCUMENT.value: "text/html"}
-    RICH_TEXT = {MimeType.DOCUMENT.value: "application/rtf",}
+    RICH_TEXT = {
+        MimeType.DOCUMENT.value: "application/rtf",
+    }
     EPUB = {MimeType.DOCUMENT.value: "application/epub+zip"}
     CSV = {MimeType.SPREADSHEET.value: "text/csv"}
     JPEG = {MimeType.DRAWING.value: "image/jpeg"}
