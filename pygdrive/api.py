@@ -17,6 +17,7 @@ class DriveApi:
         "id, name, mimeType, description, parents, trashed, starred, contentRestrictions, "
         "webViewLink, createdTime, modifiedTime, quotaBytesUsed"
     )
+    PERMISSION_ATTRS = "id, type, role, emailAddress, displayName, expirationTime"
     CHUNK_SIZE = 1000
     RESUMABLE_UPLOAD = True
 
@@ -196,3 +197,28 @@ class DriveApi:
         }
         return self.service.files().create(body=meta).execute()
         # likely returns wrong contents though
+
+    def create_permission(self, file_id: str, body: ResponseDict) -> ResponseDict:
+        return self.service.permissions().create(
+            fileId=file_id, fields=self.PERMISSION_ATTRS, body=body
+        ).execute()
+
+    def delete_permission(self, file_id: str, permission_id: str) -> None:
+        self.service.permissions().delete(
+            fileId=file_id, permissionId=permission_id
+        ).execute()
+
+    def update_permission(
+        self, file_id: str, permission_id: str, body: ResponseDict, **kwargs
+    ) -> ResponseDict:
+        return (
+            self.service.permissions()
+            .update(
+                fileId=file_id,
+                permissionId=permission_id,
+                fields=self.PERMISSION_ATTRS,
+                body=body,
+                **kwargs,
+            )
+            .execute()
+        )

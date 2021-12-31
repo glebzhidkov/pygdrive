@@ -4,12 +4,20 @@ import io
 import mimetypes
 import os
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, TypedDict, Union, overload
+from typing import TYPE_CHECKING, List, Literal, Optional, TypedDict, Union, overload
 
 from google.api_core.datetime_helpers import from_rfc3339
+from uritemplate import api
 
 from pygdrive.exceptions import MethodNotAvailable, NotADriveFolderError
-from pygdrive.typed import ContentTypes, ExportType, MimeType, ResponseDict
+from pygdrive.permission import DrivePermission, _PermissionsApiSignatue
+from pygdrive.typed import (
+    ContentTypes,
+    ExportType,
+    MimeType,
+    PermissionRole,
+    ResponseDict,
+)
 
 if TYPE_CHECKING:
     from pygdrive.client import DriveClient
@@ -58,7 +66,7 @@ def _parse_api_response(response: ResponseDict) -> _DriveFileArgs:
         url=response["webViewLink"],
         created_time=from_rfc3339(response["createdTime"]),
         modified_time=from_rfc3339(response["modifiedTime"]),
-        bytes_used=response.get("quotaBytesUsed", 0)
+        bytes_used=response.get("quotaBytesUsed", 0),
     )
 
 
@@ -113,7 +121,9 @@ class DriveFile:
 
     @description.setter
     def description(self, new_description: str) -> None:
-        self._client._api.update_file(file_id=self.id, metadata={"description": new_description})
+        self._client._api.update_file(
+            file_id=self.id, metadata={"description": new_description}
+        )
         self.__file_args["description"] = new_description
 
     @property
@@ -199,7 +209,13 @@ class DriveFile:
     @property
     def modified_time(self) -> datetime:
         return self.__file_args["modified_time"]
-    
+
+    @property
+    def permissions(self) -> List[DrivePermission]:
+        fields = self._client._api.PERMISSION_ATTRS
+        permissions = self.get_metadata(f"permissions({fields})").get("permissions", [])
+        return [DrivePermission(file=self, api_response=p) for p in permissions]
+
     def get_metadata(self, attrs: str) -> ResponseDict:
         return self._client._api.get_file(file_id=self.id, attrs=attrs)
 
@@ -294,8 +310,40 @@ class DriveFile:
         )
         return DriveFile.from_api_response(client=self._client, response=response)  # type: ignore
 
+    def share(
+        self,
+        with_: Union[str, Literal["anyone"]],
+        role: PermissionRole = "reader",
+        notification: Union[str, Literal[False], None] = None,
+        **kwargs,
+    ):
+        permission: ResponseDict = {"role": role}
+
+        if with_ == "anyone":
+            permission["type"] = "anyone"
+        elif "@" in with_:
+            permission["type"] = "user"
+            permission["emailAddress"] = with_
+        else:
+            permission["type"] = "domain"
+            permission["domain"] = with_
+
+        if role == "owner":
+            permission["transerOwnership"] = True
+
+        if notification is False:
+            permission["sendNotificationEmail"] = False
+        if notification is not None:
+            permission["emailMessage"] = notification
+
+        for k, v in kwargs.items():
+            permission[k] = v
+
+        response = self._client._api.create_permission(file_id=self.id, body=permission)
+        return DrivePermission(file=self, api_response=response)
+
     # properties that are only available for folders
-    # implemented for the sake of static type checkers
+    # implemented for the sake ozzf static type checkers
     @property
     def content(self) -> List[DriveFolder]:
         raise MethodNotAvailable("content", "DriveFile")
