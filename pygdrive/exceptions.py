@@ -6,6 +6,10 @@ class FileNotFound(DriveApiError):
     pass
 
 
+class FileAlreadyRegisteredInSession(DriveApiError):
+    pass
+
+
 class NotADriveFolderError(DriveApiError):
     pass
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 from typing import TYPE_CHECKING, List, Optional, Union
 
@@ -22,10 +23,16 @@ class DriveFiles:
     """
 
     _content: List[Union[DriveFile, DriveFolder]]
-    _title = "Search results"
 
-    def __init__(self, client: DriveClient, query: str, **_search_parms) -> None:
+    def __init__(
+        self,
+        client: DriveClient,
+        query: str,
+        title: Optional[str] = None,
+        **_search_parms,
+    ) -> None:
         self._client = client
+        self._title = title #or "Search results"
         self._search_parms = _search_parms
         self._search_parms["query"] = query
         self._reset_drive_files()
@@ -95,7 +102,10 @@ class DriveFiles:
         return self
 
     def __repr__(self) -> str:
-        return f"<DriveFiles for query='{self._search_parms['query']}'>"
+        if self._title:
+            return f"<DriveFiles for {self._title}>"
+        else:
+            return f"<DriveFiles for query='{self._search_parms['query']}'>"
 
     def exists(self, title: str) -> bool:
         try:
@@ -119,14 +129,13 @@ class DriveFiles:
 
     def download(
         self,
-        path: Optional[str] = None,
+        path: Optional[str] = ".",
         export_format: Optional[ExportType] = None,
         include_subfolders: bool = True,
-    ):
+    ) -> io.FileIO:
         """
         Download contents of this folder or search results to path.
         """
-        # TODO align signatures with DriveFile
         # TODO add progress bar
 
         if export_format:
@@ -137,15 +146,19 @@ class DriveFiles:
             raise ValueError(
                 "path parameter needs to be provided for folders / search results"
             )
+        if len(self) == 0:
+            raise ValueError("cannot download empty folder")
 
-        path = os.path.join(path, self._title)
+        path = os.path.join(path, self._title or "Search results")
         if os.path.exists(path):
             raise Exception(f"Folder already exists at {path}")
         os.mkdir(path)
 
         for obj in self.files:
-            obj.download(path=path)
+            io_obj = obj.download(path=path)
 
         if include_subfolders:
             for obj in self.subfolders:
-                obj.download(path, include_subfolders=True)
+                io_obj = obj.download(path, include_subfolders=True)
+
+        return io_obj  # type: ignore # not elegant though

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, TYPE_CHECKING
 
 from pygdrive.exceptions import (
     MoreThanOneFileMatch,
@@ -9,31 +9,30 @@ from pygdrive.exceptions import (
     MethodNotAvailable,
 )
 from pygdrive.typed import ContentTypes, MimeType
-from pygdrive.file import DriveFile
+from pygdrive.file import DriveFile, _ParsedDriveFileArgs
 from pygdrive.files import DriveFiles
+
+if TYPE_CHECKING:
+    from pygdrive.client import DriveClient
 
 
 class DriveFolder(DriveFiles, DriveFile):
-    def __init__(self, **kwargs):
+    def __init__(self, client: DriveClient, file_args: _ParsedDriveFileArgs):
         # kwargs to be passed are same as for DriveFile init
-        query = f"'{kwargs['id']}' in parents and trashed = false"
-        DriveFiles.__init__(self, client=kwargs["client"], query=query)
-        DriveFile.__init__(self, **kwargs)
-
-    def refresh(self):
-        """
-        Update folder attributes and its contents with up-to-date values from Google Drive.
-        Attributes of content files are not updated, unless a refresh() is called on them explicitly.
-        """
-        self._sync_file()
-        self._reset_drive_files()
+        query = f"'{file_args['id']}' in parents and trashed = false"
+        DriveFiles.__init__(self, client=client, query=query)
+        DriveFile.__init__(self, client=client, file_args=file_args)
 
     def __repr__(self) -> str:
+        # overwrite repr from DriveFiles
         return f"<{self.__class__.__name__} '{self.title}'>"
 
     @property
     def trashed_content(self) -> DriveFiles:
-        return self._client.search(f"'{self.id}' in parents and trashed = true")
+        return self._client.search(
+            query=f"'{self.id}' in parents and trashed = true",
+            title=f"Trashed content in {self}",
+        )
 
     def create_subfolder(self, title: str) -> DriveFolder:
         metadata = {
@@ -77,7 +76,7 @@ class DriveFolder(DriveFiles, DriveFile):
         response = self._client._api.upload_file_media(
             content=content, title=title, parent_id=self.id
         )
-        self._client._reset_contents(self.id)
+        self._client._refresh_folder_contents(self.id)
         return DriveFile.from_api_response(client=self._client, response=response)  # type: ignore
 
     def __upload_directory(self, path: str, title: Optional[str] = None) -> DriveFolder:

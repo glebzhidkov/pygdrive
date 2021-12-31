@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from typing import Dict, Optional, Union
 
+from google.auth.credentials import Credentials
+
 from pygdrive.api import DriveApi, ResponseDict
-from pygdrive.file import DriveFile, isolate_folder_id
+from pygdrive.file import DriveFile, isolate_folder_id, _parse_api_response
 from pygdrive.files import DriveFiles
 from pygdrive.folder import DriveFolder, assert_is_folder
 from pygdrive.typed import Corpora, MimeType
+from pygdrive.exceptions import FileAlreadyRegisteredInSession
 
 
 class DriveClient:
-    def __init__(self, creds) -> None:
+    def __init__(self, creds: Credentials) -> None:
         self._api = DriveApi(creds)
         self._session: Dict[str, Union[DriveFile, DriveFolder]] = {}
         self._root_folder_id = "root"
@@ -40,46 +43,34 @@ class DriveClient:
         and register it in the client's session. If this file is already registered
         in this session (based on its ID), return a reference to it instead.
         """
-        file_id = response["id"]
-        if file_id in self._session:
-            return self._session[file_id]
+        file_args = _parse_api_response(response)
 
-        parents = response.get("parents", [])
-        if len(parents) > 2:
-            print("File has more than 1 parent")
+        if file_args["id"] in self._session:
+            return self._session[file_args["id"]]
 
-        is_folder = response["mimeType"] == MimeType.FOLDER.value
+        is_folder = file_args["mime_type"] == MimeType.FOLDER.value
         builder = DriveFolder if is_folder else DriveFile
 
-        _content_restrictions = response.get("contentRestrictions", [{}])
-        is_locked = _content_restrictions[0].get("readOnly", False)
-        locking_reason = _content_restrictions[0].get("reason", None)
-
-        file = builder(
-            client=self,
-            id=file_id,
-            title=response["name"],
-            mime_type=response["mimeType"],
-            parent_id="root" if not parents else parents[0],
-            is_trashed=response.get("trashed", False),
-            is_starred=response.get("starred", False),
-            is_locked=is_locked,
-            locking_reason=locking_reason,
-            url=response["webViewLink"],
-        )
+        file = builder(client=self, file_args=file_args)
         self._register_file(file)
         return file
 
     def _register_file(self, file: Union[DriveFile, DriveFolder]) -> None:
+        """
+        Register a DriveFile in the current session.
+        """
         if file.id in self._session:
-            raise Exception("think of how to best handle this")
+            # safety check to avoid multiple instances of the same file, already handled in _build_file_from_api_response
+            raise FileAlreadyRegisteredInSession(file.id)
         self._session[file.id] = file
 
-    def _reset_contents(self, folder_id: str) -> None:
-        if folder_id in self._session and isinstance(
-            self._session[folder_id], DriveFolder
-        ):
-            self._session[folder_id].refresh()
+    def _refresh_folder_contents(self, folder_id: str) -> None:
+        """
+        Reset loaded contents of a DriveFolder, if this folder is registered in the current session.
+        """
+        folder = self._session.get(folder_id)
+        if folder and isinstance(folder, DriveFolder):
+            folder._reset_drive_files()
 
     def __getitem__(self, file_id: str) -> Union[DriveFile, DriveFolder]:
         return self.get_file(file_id)
@@ -142,11 +133,11 @@ class DriveClient:
 
     @property
     def bin(self) -> DriveFiles:
-        return self.search(query="trashed = true")
+        return self.search(query="trashed = true", title="Google Drive - Bin")
 
     @property
     def starred(self) -> DriveFiles:
-        return self.search(query="starred = true")
+        return self.search(query="starred = true", title="Google Drive - Starred")
 
     def empty_bin(self) -> None:
         self._api.empty_trash()

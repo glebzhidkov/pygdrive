@@ -3,54 +3,84 @@ from __future__ import annotations
 import io
 import mimetypes
 import os
-from typing import TYPE_CHECKING, List, Optional, Union, overload
+from typing import TYPE_CHECKING, List, Optional, TypedDict, Union, overload
 
 from pygdrive.exceptions import MethodNotAvailable, NotADriveFolderError
-from pygdrive.typed import ContentTypes, ExportType, MimeType
+from pygdrive.typed import ContentTypes, ExportType, MimeType, ResponseDict
 
 if TYPE_CHECKING:
     from pygdrive.client import DriveClient
-    from pygdrive.folder import DriveFolder
     from pygdrive.files import DriveFiles
+    from pygdrive.folder import DriveFolder
+
+
+class _ParsedDriveFileArgs(TypedDict):
+    """Arguments required to initiate a DriveFile. Not part of the public API."""
+
+    id: str
+    title: str
+    mime_type: str
+    parent_id: str
+    is_trashed: bool
+    is_starred: bool
+    is_locked: bool
+    locking_reason: Optional[str]
+    url: str
+
+
+def _parse_api_response(response: ResponseDict) -> _ParsedDriveFileArgs:
+
+    parents = response.get("parents", [])
+    if len(parents) > 2:
+        print("File has more than 1 parent")
+
+    _content_restrictions = response.get("contentRestrictions", [{}])
+    is_locked = _content_restrictions[0].get("readOnly", False)
+    locking_reason = _content_restrictions[0].get("reason", None)
+
+    return _ParsedDriveFileArgs(
+        id=response["id"],
+        title=response["name"],
+        mime_type=response["mimeType"],
+        parent_id="root" if not parents else parents[0],
+        is_trashed=response.get("trashed", False),
+        is_starred=response.get("starred", False),
+        is_locked=is_locked,
+        locking_reason=locking_reason,
+        url=response["webViewLink"],
+    )
 
 
 class DriveFile:
-    def __init__(
-        self,
-        client: DriveClient,
-        id: str,
-        title: str,
-        mime_type: str,
-        parent_id: str,
-        is_trashed: bool,
-        is_starred: bool,
-        is_locked: bool,
-        locking_reason: Optional[str],
-        url: str,
-    ) -> None:
-        self._client = client
-        self._id = id
-        self._title = title
-        self._mime_type = mime_type
-        self._parent_id = parent_id
-        self._is_trashed = is_trashed
-        self._is_starred = is_starred
-        self._is_locked = is_locked
-        self._locking_reason = locking_reason
-        self._url = url
+    """
+    API reference: https://developers.google.com/drive/api/v3/reference/files
+    """
 
-    def _sync_file(self):
-        response = self._client._api.get_file(self.id)
-        self._title = response["name"]
-        self._is_starred = response.get("starred", False)
-        self._is_trashed = response.get("trashed", False)
-        parents = response.get("parents", [])
-        if len(parents) > 2:
-            print("File has more than 1 parent")
-        self._parent_id = "root" if not parents else parents[0]
+    def __init__(self, client: DriveClient, file_args: _ParsedDriveFileArgs) -> None:
+        self._client = client
+        self._set_file_args(file_args)
+
+    def _set_file_args(self, file_args: _ParsedDriveFileArgs):
+        self._id = file_args["id"]
+        self._title = file_args["title"]
+        self._mime_type = file_args["mime_type"]
+        self._parent_id = file_args["parent_id"]
+        self._is_trashed = file_args["is_trashed"]
+        self._is_starred = file_args["is_starred"]
+        self._is_locked = file_args["is_locked"]
+        self._locking_reason = file_args["is_locked"]
+        self._url = file_args["url"]
+
+    def _reset_drive_files(self):
+        pass  # only relevant for DriveFolder
 
     def refresh(self):
-        self._sync_file()
+        """
+        Update attributes of this file with up-to-date values from cloud.
+        """
+        file_args = _parse_api_response(self._client._api.get_file(self.id))
+        self._set_file_args(file_args)
+        self._reset_drive_files()
 
     @property
     def id(self) -> str:
@@ -97,8 +127,8 @@ class DriveFile:
         self._client._api.update_file(file_id=self.id, addParents=new_parent_id)
 
         # reset children of both old and new parents
-        self._client._reset_contents(self._parent_id)
-        self._client._reset_contents(new_parent_id)
+        self._client._refresh_folder_contents(self._parent_id)
+        self._client._refresh_folder_contents(new_parent_id)
         self._parent_id = new_parent_id
 
     @property
@@ -110,7 +140,7 @@ class DriveFile:
         if self.is_trashed != new_value:
             self.set_metadata(trashed=new_value)
         self._is_trashed = new_value
-        self._client._reset_contents(
+        self._client._refresh_folder_contents(
             self._parent_id
         )  # reset the list of parent's children
 
@@ -237,7 +267,7 @@ class DriveFile:
 
         title = title or f"{self.title} (copy)"
         parent_id = isolate_folder_id(parent or self.parent)
-        self._client._reset_contents(parent_id)
+        self._client._refresh_folder_contents(parent_id)
 
         response = self._client._api.copy_file(
             file_id=self.id, title=title, parent_id=parent_id
@@ -257,6 +287,13 @@ class DriveFile:
     def trashed_content(self) -> DriveFiles:
         raise MethodNotAvailable("trashed_content", "DriveFile")
 
+    @property
+    def fully_loaded(self) -> bool:
+        raise MethodNotAvailable("fully_loaded", "DriveFile")
+
+    def exists(self, title: str) -> DriveFolder:
+        raise MethodNotAvailable("exists", "DriveFile")
+
     def get_subfolder(self, title: str, strict: bool = True) -> DriveFolder:
         raise MethodNotAvailable("get_subfolder", "DriveFile")
 
@@ -264,7 +301,6 @@ class DriveFile:
         self, content: ContentTypes, title: Optional[str] = None
     ) -> Union[DriveFile, DriveFolder]:
         raise MethodNotAvailable("upload", "DriveFile")
-
 
 def isolate_folder_id(folder: Union[DriveFolder, DriveFile, str]) -> str:
     if isinstance(folder, DriveFile):
