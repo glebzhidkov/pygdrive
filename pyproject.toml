@@ -6,7 +6,7 @@ authors = ["Gleb Zhidkov <gleb@nuri.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
-pygsheets = "^2.0.5"
+google = "^3.0.0"
 
 [tool.poetry.dev-dependencies]
 ipykernel = "^6.6.0"
