@@ -4,12 +4,13 @@ from typing import Dict, Optional, Union
 
 from google.auth.credentials import Credentials
 
-from pygdrive.api import DriveApi, ResponseDict
-from pygdrive.file import DriveFile, isolate_folder_id, _parse_api_response
+from pygdrive.api import DriveApi
+from pygdrive.enums import MimeType
+from pygdrive.exceptions import FileAlreadyRegisteredInSession
+from pygdrive.file import DriveFile, _parse_api_response, isolate_folder_id
 from pygdrive.files import DriveFiles
 from pygdrive.folder import DriveFolder, assert_is_folder
-from pygdrive.typed import Corpora, MimeType
-from pygdrive.exceptions import FileAlreadyRegisteredInSession
+from pygdrive.typed import Corpora, ResponseDict
 
 
 class DriveClient:

@@ -3,14 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Optional, Union
 
-from google.api_core.datetime_helpers import to_rfc3339, from_rfc3339
+from google.api_core.datetime_helpers import from_rfc3339, to_rfc3339
 
 from pygdrive.typed import PermissionRole, PermissionType, ResponseDict
 
 if TYPE_CHECKING:
     from pygdrive.file import DriveFile
-
-_PermissionsApiSignatue = "permissions(id, type, role, emailAddress, displayName, expirationTime)"
 
 
 class DrivePermission:
@@ -70,7 +68,10 @@ class DrivePermission:
             self._api.update_permission(
                 file_id=self.file.id,
                 permission_id=self._id,
-                body={"expirationTime": to_rfc3339(new_expiration_time), "role": self.role},
+                body={
+                    "expirationTime": to_rfc3339(new_expiration_time),
+                    "role": self.role,
+                },
             )
 
     def __repr__(self) -> str:
@@ -99,14 +100,16 @@ class DrivePermission:
             if isinstance(file, str):  # hidden support for file id instead of DriveFile
                 file = self.file._client.get_file(file)
             target_file = file
-    
+
             with_ = "anyone" if self.type == "anyone" else self.email
             assert with_ is not None
 
         else:
             raise ValueError("a permission can be copied only to a file OR to a user")
 
-        return target_file.share(with_=with_, role=self.role, notification=notification, **kwargs)
+        return target_file.share(
+            with_=with_, role=self.role, notification=notification, **kwargs
+        )
 
         # fix
         if self.expiration_time:

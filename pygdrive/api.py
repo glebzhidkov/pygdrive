@@ -199,9 +199,11 @@ class DriveApi:
         # likely returns wrong contents though
 
     def create_permission(self, file_id: str, body: ResponseDict) -> ResponseDict:
-        return self.service.permissions().create(
-            fileId=file_id, fields=self.PERMISSION_ATTRS, body=body
-        ).execute()
+        return (
+            self.service.permissions()
+            .create(fileId=file_id, fields=self.PERMISSION_ATTRS, body=body)
+            .execute()
+        )
 
     def delete_permission(self, file_id: str, permission_id: str) -> None:
         self.service.permissions().delete(

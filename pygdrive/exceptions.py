@@ -27,3 +27,7 @@ class MethodNotAvailable(DriveApiError):
 
     def __repr__(self):
         return f"{self.method} is not available for {self.context}"
+
+
+class FileIsLocked(DriveApiError):
+    pass

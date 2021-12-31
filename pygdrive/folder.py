@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional, Union
 
+from pygdrive.enums import MimeType
 from pygdrive.exceptions import (
+    MethodNotAvailable,
     MoreThanOneFileMatch,
     NotADriveFolderError,
-    MethodNotAvailable,
 )
-from pygdrive.typed import ContentTypes, MimeType
 from pygdrive.file import DriveFile, _DriveFileArgs
 from pygdrive.files import DriveFiles
+from pygdrive.typed import ContentTypes
 
 if TYPE_CHECKING:
     from pygdrive.client import DriveClient

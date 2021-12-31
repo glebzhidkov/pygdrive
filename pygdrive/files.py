@@ -4,8 +4,8 @@ import io
 import os
 from typing import TYPE_CHECKING, List, Optional, Union
 
-from pygdrive.exceptions import MoreThanOneFileMatch
-from pygdrive.typed import ExportType
+from pygdrive.enums import ExportType
+from pygdrive.exceptions import FileNotFound, MoreThanOneFileMatch
 from pygdrive.file import DriveFile
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ class DriveFiles:
         **_search_parms,
     ) -> None:
         self._client = client
-        self._title = title #or "Search results"
+        self._title = title  # or "Search results"
         self._search_parms = _search_parms
         self._search_parms["query"] = query
         self._reset_drive_files()
@@ -83,7 +83,7 @@ class DriveFiles:
             elif len(response) == 1:
                 return self._client._build_file_from_api_response(response[0])
 
-        raise KeyError
+        raise FileNotFound(f"{title=} does not exist in {self}")
 
     def __len__(self) -> int:
         return len(self.content)
@@ -111,7 +111,7 @@ class DriveFiles:
         try:
             self[title]
             return True
-        except KeyError:
+        except FileNotFound:
             return False
 
     @property

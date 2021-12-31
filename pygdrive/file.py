@@ -1,3 +1,5 @@
+# validate is_locked using a decorator
+
 from __future__ import annotations
 
 import io
@@ -7,17 +9,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING, List, Literal, Optional, TypedDict, Union, overload
 
 from google.api_core.datetime_helpers import from_rfc3339
-from uritemplate import api
 
-from pygdrive.exceptions import MethodNotAvailable, NotADriveFolderError
-from pygdrive.permission import DrivePermission, _PermissionsApiSignatue
-from pygdrive.typed import (
-    ContentTypes,
-    ExportType,
-    MimeType,
-    PermissionRole,
-    ResponseDict,
-)
+from pygdrive.enums import ExportType, MimeType
+from pygdrive.exceptions import FileIsLocked, MethodNotAvailable, NotADriveFolderError
+from pygdrive.permission import DrivePermission
+from pygdrive.typed import ContentTypes, PermissionRole, ResponseDict
 
 if TYPE_CHECKING:
     from pygdrive.client import DriveClient
@@ -112,6 +108,8 @@ class DriveFile:
 
     @title.setter
     def title(self, new_title: str) -> None:
+        if self.is_locked:
+            raise FileIsLocked(self)
         self._client._api.update_file(file_id=self.id, metadata={"name": new_title})
         self.__file_args["title"] = new_title
 
@@ -120,7 +118,9 @@ class DriveFile:
         return self.__file_args["description"]
 
     @description.setter
-    def description(self, new_description: str) -> None:
+    def description(self, new_description: Optional[str]) -> None:
+        if new_description is None:
+            new_description = ""  # empty field is ignored
         self._client._api.update_file(
             file_id=self.id, metadata={"description": new_description}
         )
@@ -184,6 +184,13 @@ class DriveFile:
     def is_locked(self) -> bool:
         return self.__file_args["is_locked"]
 
+    @is_locked.setter
+    def is_locked(self) -> None:
+        if self.is_locked:
+            self.unlock()
+        else:
+            self.lock("Locked using pygdrive.")
+
     def lock(self, locking_reason: str) -> None:
         restriction = [{"readOnly": True, "reason": locking_reason}]
         self.set_metadata(contentRestrictions=restriction)
@@ -243,10 +250,11 @@ class DriveFile:
         response = self._client._api.create_shortcut(
             file_id=self.id, title=title, parent_id=parent_id
         )
-
-        return DriveFile.from_api_response(client=self._client, response=response)  # type: ignore
+        return self._client._build_file_from_api_response(response)
 
     def update(self, content: ContentTypes) -> None:
+        if self.is_locked:
+            raise FileIsLocked(self)
         self._client._api.update_file_media(
             content=content, file_id=self.id, mime_type=self.mime_type
         )
@@ -300,6 +308,8 @@ class DriveFile:
     def copy(
         self, title: Optional[str] = None, parent: Union[DriveFolder, str, None] = None
     ) -> DriveFile:
+        if self.is_google_doc or self.is_folder:
+            raise MethodNotAvailable("copy", "google docs or folder")
 
         title = title or f"{self.title} (copy)"
         parent_id = isolate_folder_id(parent or self.parent)
@@ -308,7 +318,7 @@ class DriveFile:
         response = self._client._api.copy_file(
             file_id=self.id, title=title, parent_id=parent_id
         )
-        return DriveFile.from_api_response(client=self._client, response=response)  # type: ignore
+        return self._client._build_file_from_api_response(response)
 
     def share(
         self,
@@ -369,6 +379,9 @@ class DriveFile:
         self, content: ContentTypes, title: Optional[str] = None
     ) -> Union[DriveFile, DriveFolder]:
         raise MethodNotAvailable("upload", "DriveFile")
+
+    def __getitem__(self, title: str) -> Union[DriveFile, DriveFolder]:
+        raise MethodNotAvailable("__getitem__", "DriveFile")
 
 
 def isolate_folder_id(folder: Union[DriveFolder, DriveFile, str]) -> str:
