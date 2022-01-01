@@ -9,10 +9,15 @@ from google.auth.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload, MediaIoBaseUpload
 
-from .typed import ContentTypes, SearchCorpora, ResponseDict, SearchSpace
+from .typed import ContentTypes, Corpora, ResponseDict, Space
 
 
 class DriveApi:
+    """
+    Google Drive API v3 wrapper.
+
+    See also: [API reference](https://developers.google.com/drive/api/v3/reference).
+    """
     FILE_ATTRS = (
         "id, name, mimeType, description, parents, trashed, starred, contentRestrictions, "
         "webViewLink, createdTime, modifiedTime, quotaBytesUsed"
@@ -21,9 +26,11 @@ class DriveApi:
     CHUNK_SIZE = 1000
     RESUMABLE_UPLOAD = True
 
-    def __init__(self, creds: Credentials):
+    def __init__(self, creds: Credentials, search_page_size: int = 100):
         self.creds = creds
         self.service = build("drive", "v3", credentials=creds)
+        self.search_page_size = search_page_size
+        assert 0 < self.search_page_size < 1001
 
     def get_file(self, file_id: str, attrs=None) -> ResponseDict:
         return (
@@ -55,11 +62,10 @@ class DriveApi:
     def list_files(
         self,
         query: str,
-        corpora: SearchCorpora = "user",
-        space: SearchSpace = "drive",
+        corpora: Corpora = "user",
+        space: Space = "drive",
         drive_id: Optional[str] = None,
         order_by: Optional[str] = None,
-        limit: int = 100,
         next_page_token: Optional[str] = None,
     ) -> ResponseDict:
         """
@@ -72,7 +78,7 @@ class DriveApi:
                 corpora=corpora,
                 driveId=drive_id,
                 orderBy=order_by,
-                pageSize=limit,
+                pageSize=self.search_page_size,
                 pageToken=next_page_token,
                 spaces=space,
                 includeItemsFromAllDrives=True,
@@ -141,7 +147,7 @@ class DriveApi:
         if isinstance(content, bytes):
             content = io.BytesIO(content)
 
-        if isinstance(content, io.BytesIO):
+        if isinstance(content, io.BytesIO) or hasattr(content, "seek"):
             return MediaIoBaseUpload(
                 fd=content,
                 mimetype=mime_type,
@@ -156,7 +162,7 @@ class DriveApi:
     ) -> Union[io.BytesIO, io.FileIO]:
         """
         response.getvalue() -> bytes
-        fh.getvalue().decode('utf-8') -> string
+        fh.getvalue().decode("utf-8") -> string
         """
         if export_format:
             request = self.service.files().export_media(

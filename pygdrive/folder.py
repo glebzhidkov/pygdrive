@@ -21,7 +21,7 @@ class DriveFolder(DriveFiles, DriveFile):
     def __init__(self, client: DriveClient, file_args: _DriveFileArgs):
         # kwargs to be passed are same as for DriveFile init
         query = f"'{file_args['id']}' in parents and trashed = false"
-        DriveFiles.__init__(self, client=client, query=query)
+        DriveFiles.__init__(self, client=client, query=query, corpora=client._corpora, space=client._space)
         DriveFile.__init__(self, client=client, file_args=file_args)
 
     def __repr__(self) -> str:
@@ -30,12 +30,18 @@ class DriveFolder(DriveFiles, DriveFile):
 
     @property
     def trashed_content(self) -> DriveFiles:
+        """
+        All content that was deleted from this folder and is currently trashed (in bin).
+        """
         return self._client.search(
             query=f"'{self.id}' in parents and trashed = true",
             title=f"Trashed content in {self}",
         )
 
     def create_subfolder(self, title: str) -> DriveFolder:
+        """
+        Creates a new subfolder with the specified title and returns its instance.
+        """
         metadata = {
             "name": title,
             "mimeType": MimeType.FOLDER.value,
@@ -47,11 +53,11 @@ class DriveFolder(DriveFiles, DriveFile):
 
     def get_subfolder(self, title: str, strict: bool = True) -> DriveFolder:
         """
-        Returns an existing subfolder with the specified title or creates a new one.
+        Returns an existing or creates a new subfolder with the specified title.
 
         Args:
-            strict: if True (default), raises MoreThanOneFileMatch if more than subfolder with such title exist
-                    if False, always returns the first match
+            :strict:    Whether to raise an Error (MoreThanOneFileMatch) if there is more than
+                        one subfolder with such title. If False, the first match is returned.
         """
         matching_entries = [obj for obj in self.subfolders if obj.title == title]
 

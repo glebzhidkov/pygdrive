@@ -80,7 +80,7 @@ class DriveFile:
 
     def refresh(self):
         """
-        Update attributes of this file with up-to-date values from cloud.
+        Update attributes of the file with up-to-date values from Google Drive.
         """
         self.__file_args = _parse_api_response(self._client._api.get_file(self.id))
         self._reset_drive_files()
@@ -102,7 +102,7 @@ class DriveFile:
     @property
     def title(self) -> str:
         """
-        The name of the file (mutable). This is not necessarily unique within a folder.
+        The name of the file (mutable). It is not necessarily unique within a folder.
         """
         return self.__file_args["title"]
 
@@ -115,6 +115,9 @@ class DriveFile:
 
     @property
     def description(self) -> Optional[str]:
+        """
+        An optional description of the file (mutable).
+        """
         return self.__file_args["description"]
 
     @description.setter
@@ -135,10 +138,15 @@ class DriveFile:
 
     @property
     def bytes_used(self) -> int:
+        """
+        """
         return self.__file_args["bytes_used"]
 
     @property
     def parent(self) -> DriveFolder:
+        """
+        The parent folder that contains the file.
+        """
         return self._client.get_folder(self.__file_args["parent_id"])
 
     @parent.setter
@@ -147,6 +155,7 @@ class DriveFile:
 
     def move(self, new_parent: Union[DriveFolder, str]) -> None:
         new_parent_id = isolate_folder_id(new_parent)
+        assert new_parent_id != self.__file_args["parent_id"]
         self._client._api.update_file(file_id=self.id, addParents=new_parent_id)
 
         # reset children of both old and new parents
@@ -156,6 +165,15 @@ class DriveFile:
 
     @property
     def is_trashed(self) -> bool:
+        """
+        Whether the file is trashed into the bin (mutable).
+
+        Apply `file.is_trashed = True` or `file.delete()` to trash the file
+        and `file.is_trashed = False` to recover it.
+
+        All trashed files are accessible under `client.bin` and can be 
+        cleaned with the `client.empty_bin()` method.
+        """
         return self.__file_args["is_trashed"]
 
     @is_trashed.setter
@@ -166,12 +184,20 @@ class DriveFile:
         # reset the list of parent's children if parent already loaded
         self._client._refresh_folder_contents(self.__file_args["parent_id"])
 
-    def delete(self) -> None:
+    def delete(self, irreversable: bool = False) -> None:
+        """
+        Trash the file into the bin or delete it irreversably.
+        """
         # TODO: add skip_bin parameter
         self.is_trashed = True
 
     @property
     def is_starred(self) -> bool:
+        """
+        Whether the file is added into the user's starred collection (mutable).
+
+        All starred files are accessible under `client.starred`.
+        """
         return self.__file_args["is_starred"]
 
     @is_starred.setter
@@ -182,39 +208,76 @@ class DriveFile:
 
     @property
     def is_locked(self) -> bool:
-        return self.__file_args["is_locked"]
+        """
+        Whether the file is locked from changes (mutable).
 
+        Apply `file.is_locked = True` or `file.lock(locking_reason="...")` 
+        to lock the file and `file.is_locked = False` or `file.unlock()` 
+        to unlock it.
+
+        Locked files cannot be renamed, and their contents cannot be updated.
+        """
+        return self.__file_args["is_locked"]
+  
     @is_locked.setter
-    def is_locked(self) -> None:
-        if self.is_locked:
-            self.unlock()
-        else:
+    def is_locked(self, new_value: bool) -> None:
+        if new_value:
             self.lock("Locked using pygdrive.")
+        else:
+            self.unlock()
+
+    @property
+    def locking_reason(self) -> Optional[str]:
+        if not self.is_locked:
+            raise ValueError
+        return self.__file_args["locking_reason"]
 
     def lock(self, locking_reason: str) -> None:
+        """
+        Lock the file from editing.
+        """
+        if self.is_locked:
+            raise ValueError
         restriction = [{"readOnly": True, "reason": locking_reason}]
         self.set_metadata(contentRestrictions=restriction)
         self.__file_args["is_locked"] = True
 
     def unlock(self) -> None:
+        """
+        Unlock a previoisly locked file.
+        """
+        if not self.is_locked:
+            raise ValueError
         restriction = [{"readOnly": False}]
         self.set_metadata(contentRestrictions=restriction)
         self.__file_args["is_locked"] = False
 
     @property
     def is_folder(self) -> bool:
+        """
+        Whether this file is a `DriveFolder` (immutable).
+        """
         return self.mime_type == MimeType.FOLDER.value
 
     @property
     def is_google_doc(self) -> bool:
+        """
+        Whether this file is from a Google app (immutable).
+        """
         return self.mime_type.startswith("application/vnd.google-apps.")
 
     @property
     def created_time(self) -> datetime:
+        """
+        The time when the file was first created (immutable).
+        """
         return self.__file_args["created_time"]
 
     @property
     def modified_time(self) -> datetime:
+        """
+        The time when the file was last modified (immutable).
+        """
         return self.__file_args["modified_time"]
 
     @property
@@ -355,24 +418,70 @@ class DriveFile:
     # properties that are only available for folders
     # implemented for the sake ozzf static type checkers
     @property
-    def content(self) -> List[DriveFolder]:
+    def content(self) -> List[Union[DriveFile, DriveFolder]]:
+        """
+        Returns a list containing all files and subfolders contained in 
+        this `DriveFolder`. All elements are eagerly loaded.
+        """
         raise MethodNotAvailable("content", "DriveFile")
 
-    subfolders = content
-    files = content
+    @property
+    def subfolders(self) -> List[DriveFolder]:
+        """
+        Returns a list containing all subfolders contained in 
+        this `DriveFolder`. All elements are eagerly loaded.
+        """
+        raise MethodNotAvailable("subfolders", "DriveFile")
+
+    @property
+    def files(self) -> List[DriveFile]:
+        """
+        Returns a list containing all files contained in 
+        this `DriveFolder`. All elements are eagerly loaded.
+        """
+        raise MethodNotAvailable("files", "DriveFile")
 
     @property
     def trashed_content(self) -> DriveFiles:
+        """
+        All content that was deleted from this folder and is currently trashed (in bin).
+        This property is only available for `DriveFolder`.
+        """
         raise MethodNotAvailable("trashed_content", "DriveFile")
 
     @property
-    def fully_loaded(self) -> bool:
+    def is_fully_loaded(self) -> bool:
+        """
+        Whether all elements have been loaded into the current session.
+        This property is only available for `DriveFolder`.
+        """
         raise MethodNotAvailable("fully_loaded", "DriveFile")
 
     def exists(self, title: str) -> DriveFolder:
+        """
+        Whether a file or a folder with the specified title exists in 
+        this `DriveFolder` (exact match).
+        This method is only available for `DriveFolder`.
+        """
         raise MethodNotAvailable("exists", "DriveFile")
 
+    def create_subfolder(self, title: str) -> DriveFolder:
+        """
+        Creates a new subfolder with the specified title and returns its instance.
+        This method is only available for `DriveFolder`.
+        """
+        raise MethodNotAvailable("create_subfolder", "DriveFile")
+
     def get_subfolder(self, title: str, strict: bool = True) -> DriveFolder:
+        """
+        Returns an existing or creates a new subfolder with the specified title.
+
+        Args:
+            :strict:    Whether to raise an Error (MoreThanOneFileMatch) if there is more than
+                        one subfolder with such title. If False, the first match is returned.
+
+        This method is only available for `DriveFolder`.
+        """
         raise MethodNotAvailable("get_subfolder", "DriveFile")
 
     def upload(

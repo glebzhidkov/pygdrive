@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "pygdrive"
 version = "0.0.1"
-description = ""
+description = "Google Drive API interface"
 authors = ["Gleb Zhidkov <gleb@nuri.com>"]
 
 [tool.poetry.dependencies]

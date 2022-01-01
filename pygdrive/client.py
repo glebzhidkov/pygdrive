@@ -6,11 +6,11 @@ from google.auth.credentials import Credentials
 
 from pygdrive.api import DriveApi
 from pygdrive.enums import MimeType
-from pygdrive.exceptions import FileAlreadyRegisteredInSession
+from pygdrive.exceptions import FileAlreadyRegisteredInSession, MethodNotAvailable
 from pygdrive.file import DriveFile, _parse_api_response, isolate_folder_id
 from pygdrive.files import DriveFiles
 from pygdrive.folder import DriveFolder, assert_is_folder
-from pygdrive.typed import SearchCorpora, ResponseDict, SearchSpace
+from pygdrive.typed import ResponseDict, Space, Corpora
 
 
 class DriveClient:
@@ -35,42 +35,48 @@ class DriveClient:
     file.share("axel@lexa.com", role="editor")
     ```
     """
-    def __init__(self, creds: Credentials) -> None:
+    _corpora: Corpora
+    _space: Space
+
+    def __init__(
+        self,
+        creds: Credentials,
+        drive_id: Optional[str] = None,
+        app_data_folder: bool = False,
+    ) -> None:
         self._api = DriveApi(creds)
         self._session: Dict[str, Union[DriveFile, DriveFolder]] = {}
-        self._root_folder_id = "root"
-        self.update_search_config()
+        self.__set_parms(drive_id=drive_id, app_data_folder=app_data_folder)
 
-    def update_search_config(
-        self,
-        corpora: SearchCorpora = "user",
-        space: SearchSpace = "drive",
-        drive_id: Optional[str] = None,
-        order_by: Optional[str] = None,
-        limit: int = 100,
-    ) -> None:
-        """
-        Update default search parameters for this instance of the DriveClient.
+    def __set_parms(self, drive_id: Optional[str], app_data_folder: bool):
+        if drive_id:
+            self._drive_id = drive_id
+            self._root_folder_id = drive_id
+            self._space = "drive"
+            self._corpora = "drive"
+        elif app_data_folder:
+            self._drive_id = None
+            self._root_folder_id = "appDataFolder"
+            self._space = "appDataFolder"
+            self._corpora = "user"
+        else:
+            self._drive_id = None
+            self._root_folder_id = "root"
+            self._space = "drive"
+            self._corpora = "user"
+        
+        if drive_id and app_data_folder:
+            raise ValueError
 
-        Args:
-            corpora     "user" (search among files stored in or shared to user's Drive, default),
-                        "drive" (shared drive, requires "drive_id"),
-                        "domain" (files in work / school domain),
-                        "allDrives" (not performant).
-            spaces      "drive" (default) or "appDataFolder"
-            drive_id    ID of the shared drive to search.
-            order_by    
-            limit:      number of files returned in a single API request response (1 to 1000)
+    @property
+    def drive_id(self) -> Optional[str]:
+        return self._drive_id
 
-        See also: [API reference](https://developers.google.com/drive/api/v3/reference/files/list).
-        """
-        self._search_config = {
-            "corpora": corpora,
-            "space": space,
-            "drive_id": drive_id,
-            "order_by": order_by,
-            "limit": limit,
-        }
+    @drive_id.setter
+    def drive_id(self, new_drive_id: Optional[str]) -> None:
+        if self._space == "appDataFolder":
+            raise Exception
+        self.__set_parms(drive_id=new_drive_id, app_data_folder=False)
 
     def _build_file_from_api_response(
         self, response: ResponseDict
@@ -127,16 +133,26 @@ class DriveClient:
         """
         return assert_is_folder(self.get_file(folder_id))
 
-    def get_shared_drive(self, drive_id: str) -> DriveFolder:
-        new_client = DriveClient(self._api.creds)
-        new_client.update_search_config(corpora="drive", drive_id=drive_id)
-        return new_client.get_folder(drive_id)
+    def get_shared_drive(self, drive_id: str) -> DriveClient:
+        """
+        Returns a `DriveFolder` that is the root folder of the drive with the specified ID.
+        """
+        return DriveClient(self._api.creds, drive_id=drive_id)
+
+    def get_app_data(self) -> DriveClient:
+        """
+        """
+        return DriveClient(self._api.creds, app_data_folder=True)
 
     def search(self, query: str, **kwargs) -> DriveFiles:
-        if not kwargs:
-            # make this more elegant?
-            kwargs = self._search_config
-        return DriveFiles(client=self, query=query, **kwargs)
+        return DriveFiles(
+            client=self,
+            query=query,
+            corpora=kwargs.get("corpora") or self._corpora,
+            space=kwargs.get("space") or self._space,
+            drive_id=kwargs.get("drive_id") or self.drive_id,
+            title=kwargs.get("title"),
+        )
 
     def find_file(
         self, title: str, parent: Union[str, DriveFolder, None] = None, **kwargs
@@ -159,13 +175,13 @@ class DriveClient:
 
     @property
     def root(self) -> DriveFolder:
+        """
+        """
         root_folder = self.get_folder(self._root_folder_id)
-        self._session[
-            "root"
-        ] = root_folder  # add additional reference to session as generic 'root'
-        self._root_folder_id = (
-            root_folder.id
-        )  # update generic 'root' with the actual folder ID
+        # add additional reference to session as generic 'root'
+        self._session["root"] = root_folder
+        # update generic 'root' with the actual folder ID
+        self._root_folder_id = root_folder.id
         return root_folder
 
     @property
